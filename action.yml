@@ -96,6 +96,7 @@ runs:
         VERSION: ${{ steps.check.outputs.version }}
         URL: ${{ steps.check.outputs.url }}
       run: |
+        set -o pipefail
         if [ -z "$BUTLER_API_KEY" ]; then
           echo "::warning::No BUTLER_API_KEY secret on this repo, so nothing was pushed to itch."
           exit 0
@@ -103,5 +104,12 @@ runs:
         curl -sSfL -o "$RUNNER_TEMP/butler.zip" https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
         unzip -q -o "$RUNNER_TEMP/butler.zip" -d "$RUNNER_TEMP/butler"
         chmod +x "$RUNNER_TEMP/butler/butler"
-        "$RUNNER_TEMP/butler/butler" push "$DIST" "$TARGET" --userversion "$VERSION"
+        if ! "$RUNNER_TEMP/butler/butler" push "$DIST" "$TARGET" --userversion "$VERSION" 2>&1 | tee "$RUNNER_TEMP/butler.log"; then
+          if grep -q "invalid game" "$RUNNER_TEMP/butler.log"; then
+            echo "::error::There's no itch page at $URL yet. Create it once on itch.io (Kind: HTML), then re-run this workflow."
+          elif grep -q "invalid key" "$RUNNER_TEMP/butler.log"; then
+            echo "::error::itch rejected BUTLER_API_KEY. Store a fresh key on this repo (tools/set-itch-key.sh in the hub)."
+          fi
+          exit 1
+        fi
         echo "### Published $VERSION to [$URL]($URL)" >> "$GITHUB_STEP_SUMMARY"
