@@ -1,0 +1,107 @@
+name: itch-publish
+description: Build a web game, check it against itch.io's HTML5 limits, load it in headless Chromium, and push it to itch.io with butler.
+author: Largo Labs
+
+inputs:
+  itch-user:
+    description: itch.io account that owns the game page.
+    required: true
+  butler-api-key:
+    description: itch.io API key (pass a secret). When empty, the push is skipped with a warning.
+    required: false
+    default: ''
+  publish:
+    description: "'true' pushes the build to itch. Anything else only builds and tests."
+    required: false
+    default: 'false'
+  path:
+    description: Game folder holding package.json and GAME.md, relative to the repo root.
+    required: false
+    default: '.'
+  channel:
+    description: butler channel. Keep 'html5' so itch plays it in the browser.
+    required: false
+    default: html5
+  node-version:
+    description: Node.js version for the build.
+    required: false
+    default: '24'
+
+outputs:
+  url:
+    description: The game's itch.io page.
+    value: ${{ steps.check.outputs.url }}
+  version:
+    description: The version pushed (package.json version + short commit).
+    value: ${{ steps.check.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: npm
+        cache-dependency-path: ${{ inputs.path }}/package-lock.json
+
+    - name: Install
+      shell: bash
+      working-directory: ${{ inputs.path }}
+      run: npm ci
+
+    - name: Typecheck
+      shell: bash
+      working-directory: ${{ inputs.path }}
+      run: npm run typecheck --if-present
+
+    - name: Build
+      shell: bash
+      working-directory: ${{ inputs.path }}
+      run: npm run build
+
+    - name: Check build against itch limits
+      id: check
+      shell: bash
+      env:
+        GAME_DIR: ${{ inputs.path }}
+        ITCH_USER: ${{ inputs.itch-user }}
+        ITCH_CHANNEL: ${{ inputs.channel }}
+      run: node "$GITHUB_ACTION_PATH/check.mjs" "$GAME_DIR"
+
+    - name: Smoke test in headless Chromium
+      shell: bash
+      env:
+        DIST: ${{ steps.check.outputs.dist }}
+      run: |
+        cd "$GITHUB_ACTION_PATH"
+        npm install --no-save --no-package-lock --silent playwright@1.64.0
+        npx playwright install --with-deps --only-shell chromium
+        node smoke.mjs "$DIST" "$RUNNER_TEMP/smoke.png"
+
+    - name: Upload smoke-test screenshot
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: smoke-screenshot
+        path: ${{ runner.temp }}/smoke.png
+        if-no-files-found: ignore
+
+    - name: Push to itch.io
+      if: inputs.publish == 'true'
+      shell: bash
+      env:
+        BUTLER_API_KEY: ${{ inputs.butler-api-key }}
+        DIST: ${{ steps.check.outputs.dist }}
+        TARGET: ${{ steps.check.outputs.target }}
+        VERSION: ${{ steps.check.outputs.version }}
+        URL: ${{ steps.check.outputs.url }}
+      run: |
+        if [ -z "$BUTLER_API_KEY" ]; then
+          echo "::warning::No BUTLER_API_KEY secret on this repo, so nothing was pushed to itch."
+          exit 0
+        fi
+        curl -sSfL -o "$RUNNER_TEMP/butler.zip" https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+        unzip -q -o "$RUNNER_TEMP/butler.zip" -d "$RUNNER_TEMP/butler"
+        chmod +x "$RUNNER_TEMP/butler/butler"
+        "$RUNNER_TEMP/butler/butler" push "$DIST" "$TARGET" --userversion "$VERSION"
+        echo "### Published $VERSION to [$URL]($URL)" >> "$GITHUB_STEP_SUMMARY"
