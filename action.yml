@@ -106,7 +106,8 @@ runs:
         chmod +x "$RUNNER_TEMP/butler/butler"
         if ! "$RUNNER_TEMP/butler/butler" push "$DIST" "$TARGET" --userversion "$VERSION" 2>&1 | tee "$RUNNER_TEMP/butler.log"; then
           if grep -q "invalid game" "$RUNNER_TEMP/butler.log"; then
-            echo "::error::There's no itch page at $URL yet. Create it once on itch.io (Kind: HTML), then re-run this workflow."
+            echo "::warning::Not published: there's no itch page at $URL yet. Create it once on itch.io (Kind: HTML) and the next run on main publishes."
+            exit 0
           elif grep -q "invalid key" "$RUNNER_TEMP/butler.log"; then
             echo "::error::itch rejected BUTLER_API_KEY. Store a fresh key on this repo (tools/set-itch-key.sh in the hub)."
           fi
