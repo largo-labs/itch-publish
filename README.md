@@ -14,7 +14,7 @@ Used by every [Largo Labs](https://github.com/largo-labs) game repo.
 3. `smoke.mjs` serves the build from a sub-path and loads it in Chromium. It fails on uncaught errors,
    console errors or missing files, and uploads a screenshot as a run artifact.
 4. When `publish` is `'true'`, it runs `butler push dist <itch-user>/<itch_slug>:html5 --userversion <version>+<sha>`.
-   Without an API key it skips the push with a warning.
+   Without an API key, or before the game's itch page exists, it skips the push with a warning.
 
 ## Usage
 
