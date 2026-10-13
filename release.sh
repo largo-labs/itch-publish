@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Attach a built game to a GitHub Release as game.zip (index.html at the zip root), marked latest, so
+# Publish a built game as game.zip (index.html at the zip root) on a GitHub Release, marked latest, so
 # LocalArcade installs it as a download instead of building it from source.
 #
 #   release.sh <dist-folder>
@@ -7,25 +7,25 @@
 # Env: GH_TOKEN (needs contents: write), GH_REPO (owner/name), GITHUB_SHA, VERSION (from check.mjs,
 # <package.json version>+<short commit>), TITLE (optional), KEEP (build releases to keep, default 5, 0 keeps all).
 # The tag is v<version>-<short commit>, so it changes on every build: LocalArcade compares the latest tag to
-# spot updates. This never fails the job. When the token can't write releases, it warns and exits 0.
+# spot updates. Failing to publish fails the job; failing to remove old releases only warns.
 set -uo pipefail
 
-warn() {
-  echo "::warning::$1"
-  [ -n "${GITHUB_STEP_SUMMARY:-}" ] && echo "⚠️ $1" >> "$GITHUB_STEP_SUMMARY"
-  exit 0
+fail() {
+  echo "::error::$1"
+  [ -n "${GITHUB_STEP_SUMMARY:-}" ] && echo "❌ $1" >> "$GITHUB_STEP_SUMMARY"
+  exit 1
 }
 
 dist="${1:-}"
-[ -n "${VERSION:-}" ] || warn "No VERSION, so no GitHub Release was made."
-[ -f "$dist/index.html" ] || warn "No index.html in '$dist', so no GitHub Release was made."
+[ -n "${VERSION:-}" ] || fail "No VERSION, so nothing was published."
+[ -f "$dist/index.html" ] || fail "No index.html in '$dist', so nothing was published."
 sha="${GITHUB_SHA:-$(git rev-parse HEAD)}"
 tag="v${VERSION//+/-}"
 keep="${KEEP:-5}"
-tmp="$(mktemp -d "${RUNNER_TEMP:-/tmp}/release.XXXXXX")" || warn "Couldn't make a temp folder, so no GitHub Release was made."
+tmp="$(mktemp -d "${RUNNER_TEMP:-/tmp}/release.XXXXXX")" || fail "Couldn't make a temp folder, so nothing was published."
 zip="$tmp/game.zip"
 
-(cd "$dist" && zip -qrX "$zip" .) || warn "Couldn't zip $dist, so no GitHub Release was made."
+(cd "$dist" && zip -qrX "$zip" .) || fail "Couldn't zip $dist, so nothing was published."
 mb=$(awk -v b="$(wc -c < "$zip")" 'BEGIN { printf "%.1f", b / 1048576 }')
 
 if gh release view "$tag" >/dev/null 2>&1; then
@@ -38,9 +38,9 @@ fi
 if [ "$rc" -ne 0 ]; then
   echo "$out"
   if grep -qiE 'not accessible by integration|HTTP 403' <<< "$out"; then
-    warn "No GitHub Release: the workflow token can't write releases. Add 'permissions: contents: write' to the workflow (see the itch-publish README)."
+    fail "Not published: the workflow token can't write releases. Add 'permissions: contents: write' to the workflow (see the itch-publish README)."
   fi
-  warn "No GitHub Release: gh failed (see the log above)."
+  fail "Not published: gh failed (see the log above)."
 fi
 
 echo "✓ Released $tag (game.zip, $mb MB)"

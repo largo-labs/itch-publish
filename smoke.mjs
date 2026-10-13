@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Load a built game in headless Chromium the way itch serves it (from a sub-path) and fail on
+// Load a built game in headless Chromium from a sub-path (so absolute asset paths break) and fail on
 // uncaught errors, console errors or missing files.
 //
 //   node smoke.mjs <dist-folder> [screenshot.png]
