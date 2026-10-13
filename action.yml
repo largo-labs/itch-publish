@@ -1,35 +1,20 @@
-name: itch-publish
-description: Build a web game, check it against itch.io's HTML5 limits, load it in headless Chromium, push it to itch.io with butler and attach it to a GitHub Release for LocalArcade.
+name: Largo Labs publish
+description: Build a web game, check it, load it in headless Chromium, and publish it as game.zip on a GitHub Release that LocalArcade installs.
 author: Largo Labs
 
 inputs:
-  itch-user:
-    description: itch.io account that owns the game page.
-    required: true
-  butler-api-key:
-    description: itch.io API key (pass a secret). When empty, the push is skipped with a warning.
-    required: false
-    default: ''
   publish:
-    description: "'true' pushes the build to itch. Anything else only builds and tests."
+    description: "'true' publishes the build as a GitHub Release (game.zip, marked latest). Anything else only builds and tests. Needs 'permissions: contents: write' in the workflow."
     required: false
     default: 'false'
   path:
     description: Game folder holding package.json and GAME.md, relative to the repo root.
     required: false
     default: '.'
-  channel:
-    description: butler channel. Keep 'html5' so itch plays it in the browser.
-    required: false
-    default: html5
   node-version:
     description: Node.js version for the build.
     required: false
     default: '24'
-  github-release:
-    description: "'true' also attaches the build to a GitHub Release as game.zip whenever publish is 'true', so LocalArcade installs it as a download. Needs 'permissions: contents: write' in the workflow; without it the release is skipped with a warning."
-    required: false
-    default: 'true'
   github-token:
     description: Token that creates the release. Defaults to the workflow's GITHUB_TOKEN.
     required: false
@@ -40,11 +25,8 @@ inputs:
     default: '5'
 
 outputs:
-  url:
-    description: The game's itch.io page.
-    value: ${{ steps.check.outputs.url }}
   version:
-    description: The version pushed (package.json version + short commit).
+    description: The build's version (package.json version + short commit).
     value: ${{ steps.check.outputs.version }}
   release-tag:
     description: The GitHub Release made for this build (v<version>-<short commit>), empty when none was made.
@@ -74,13 +56,11 @@ runs:
       working-directory: ${{ inputs.path }}
       run: npm run build
 
-    - name: Check build against itch limits
+    - name: Check the build
       id: check
       shell: bash
       env:
         GAME_DIR: ${{ inputs.path }}
-        ITCH_USER: ${{ inputs.itch-user }}
-        ITCH_CHANNEL: ${{ inputs.channel }}
       run: node "$GITHUB_ACTION_PATH/check.mjs" "$GAME_DIR"
 
     - name: Smoke test in headless Chromium
@@ -101,9 +81,9 @@ runs:
         path: ${{ runner.temp }}/smoke.png
         if-no-files-found: ignore
 
-    - name: Attach the build to a GitHub Release
+    - name: Publish game.zip as a GitHub Release
       id: release
-      if: inputs.publish == 'true' && inputs.github-release == 'true' && github.event_name != 'pull_request'
+      if: inputs.publish == 'true' && github.event_name != 'pull_request'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
@@ -113,32 +93,3 @@ runs:
         TITLE: ${{ steps.check.outputs.title }}
         KEEP: ${{ inputs.keep-releases }}
       run: bash "$GITHUB_ACTION_PATH/release.sh" "$DIST"
-
-    - name: Push to itch.io
-      if: inputs.publish == 'true'
-      shell: bash
-      env:
-        BUTLER_API_KEY: ${{ inputs.butler-api-key }}
-        DIST: ${{ steps.check.outputs.dist }}
-        TARGET: ${{ steps.check.outputs.target }}
-        VERSION: ${{ steps.check.outputs.version }}
-        URL: ${{ steps.check.outputs.url }}
-      run: |
-        set -o pipefail
-        if [ -z "$BUTLER_API_KEY" ]; then
-          echo "::warning::No BUTLER_API_KEY secret on this repo, so nothing was pushed to itch."
-          exit 0
-        fi
-        curl -sSfL -o "$RUNNER_TEMP/butler.zip" https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
-        unzip -q -o "$RUNNER_TEMP/butler.zip" -d "$RUNNER_TEMP/butler"
-        chmod +x "$RUNNER_TEMP/butler/butler"
-        if ! "$RUNNER_TEMP/butler/butler" push "$DIST" "$TARGET" --userversion "$VERSION" 2>&1 | tee "$RUNNER_TEMP/butler.log"; then
-          if grep -q "invalid game" "$RUNNER_TEMP/butler.log"; then
-            echo "::warning::Not published: there's no itch page at $URL yet. Create it once on itch.io (Kind: HTML) and the next run on main publishes."
-            exit 0
-          elif grep -q "invalid key" "$RUNNER_TEMP/butler.log"; then
-            echo "::error::itch rejected BUTLER_API_KEY. Store a fresh key on this repo (tools/set-itch-key.sh in the hub)."
-          fi
-          exit 1
-        fi
-        echo "### Published $VERSION to [$URL]($URL)" >> "$GITHUB_STEP_SUMMARY"
