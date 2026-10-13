@@ -1,5 +1,5 @@
 name: itch-publish
-description: Build a web game, check it against itch.io's HTML5 limits, load it in headless Chromium, and push it to itch.io with butler.
+description: Build a web game, check it against itch.io's HTML5 limits, load it in headless Chromium, push it to itch.io with butler and attach it to a GitHub Release for LocalArcade.
 author: Largo Labs
 
 inputs:
@@ -26,6 +26,18 @@ inputs:
     description: Node.js version for the build.
     required: false
     default: '24'
+  github-release:
+    description: "'true' also attaches the build to a GitHub Release as game.zip whenever publish is 'true', so LocalArcade installs it as a download. Needs 'permissions: contents: write' in the workflow; without it the release is skipped with a warning."
+    required: false
+    default: 'true'
+  github-token:
+    description: Token that creates the release. Defaults to the workflow's GITHUB_TOKEN.
+    required: false
+    default: ${{ github.token }}
+  keep-releases:
+    description: How many build releases to keep. Older ones are deleted with their tags. '0' keeps all.
+    required: false
+    default: '5'
 
 outputs:
   url:
@@ -34,6 +46,9 @@ outputs:
   version:
     description: The version pushed (package.json version + short commit).
     value: ${{ steps.check.outputs.version }}
+  release-tag:
+    description: The GitHub Release made for this build (v<version>-<short commit>), empty when none was made.
+    value: ${{ steps.release.outputs.tag }}
 
 runs:
   using: composite
@@ -85,6 +100,19 @@ runs:
         name: smoke-screenshot
         path: ${{ runner.temp }}/smoke.png
         if-no-files-found: ignore
+
+    - name: Attach the build to a GitHub Release
+      id: release
+      if: inputs.publish == 'true' && inputs.github-release == 'true' && github.event_name != 'pull_request'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        GH_REPO: ${{ github.repository }}
+        DIST: ${{ steps.check.outputs.dist }}
+        VERSION: ${{ steps.check.outputs.version }}
+        TITLE: ${{ steps.check.outputs.title }}
+        KEEP: ${{ inputs.keep-releases }}
+      run: bash "$GITHUB_ACTION_PATH/release.sh" "$DIST"
 
     - name: Push to itch.io
       if: inputs.publish == 'true'

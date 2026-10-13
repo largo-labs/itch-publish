@@ -6,7 +6,7 @@
 // Reads <game-folder>/GAME.md front matter (itch_slug, optional build_output) and
 // <game-folder>/package.json (version). Env: ITCH_USER (required), ITCH_CHANNEL (default html5),
 // GITHUB_SHA (adds the short commit to the version). In GitHub Actions it writes dist, target,
-// version and url to $GITHUB_OUTPUT; locally it just prints them.
+// version, url and title to $GITHUB_OUTPUT; locally it just prints them.
 
 import { appendFileSync, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
@@ -42,6 +42,7 @@ const out = {
   target: `${user}/${game.itch_slug}:${channel}`,
   version: sha ? `${pkg.version}+${sha}` : pkg.version,
   url: `https://${user}.itch.io/${game.itch_slug}`,
+  title: game.title ?? game.itch_slug,
 };
 console.log(`✓ ${game.title ?? game.itch_slug}: ${files.length} files, ${totalMB.toFixed(1)} MB, largest ${(biggest.size / 1e6).toFixed(1)} MB`);
 for (const [k, v] of Object.entries(out)) console.log(`  ${k}: ${v}`);
